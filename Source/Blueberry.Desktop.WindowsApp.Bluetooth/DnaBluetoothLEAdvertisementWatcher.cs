@@ -1,7 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
+using Windows.Devices.Bluetooth;
 using Windows.Devices.Bluetooth.Advertisement;
+using Windows.Devices.Bluetooth.GenericAttributeProfile;
 
 namespace Blueberry.Desktop.WindowsApp.Bluetooth
 {
@@ -22,7 +25,12 @@ namespace Blueberry.Desktop.WindowsApp.Bluetooth
         /// <summary>
         /// a list of discovered devices
         /// </summary>
-        private readonly Dictionary<ulong, DnaBluetoothLEDevice> mDiscoveredDevices = new Dictionary<ulong, DnaBluetoothLEDevice>();
+        private readonly Dictionary<string, DnaBluetoothLEDevice> mDiscoveredDevices = new Dictionary<string, DnaBluetoothLEDevice>();
+
+        /// <summary>
+        /// the details about GATT Services
+        /// </summary>
+        private readonly GattServiceIds mGattServiceIds;
 
         /// <summary>
         /// a thread lock object for this class
@@ -104,8 +112,11 @@ namespace Blueberry.Desktop.WindowsApp.Bluetooth
         /// <summary>
         /// the default constructor
         /// </summary>
-        public DnaBluetoothLEAdvertisementWatcher()
+        public DnaBluetoothLEAdvertisementWatcher(GattServiceIds gattIds)
         {
+            // null check 
+            mGattServiceIds = gattIds ?? throw new ArgumentNullException(nameof(gattIds));
+
             // create bluetooth listener
             mWatcher = new BluetoothLEAdvertisementWatcher
             {
@@ -113,7 +124,7 @@ namespace Blueberry.Desktop.WindowsApp.Bluetooth
             };
 
             // listen out for new advertisements
-            mWatcher.Received += WatcherAdvertisementReceived;
+            mWatcher.Received += WatcherAdvertisementReceivedAsync;
 
             // listen out for when the watcher stops listening
             mWatcher.Stopped += (watcher, e) =>
@@ -132,55 +143,54 @@ namespace Blueberry.Desktop.WindowsApp.Bluetooth
         /// </summary>
         /// <param name="sender">the watcher</param>
         /// <param name="args">the arguments</param>
-        private void WatcherAdvertisementReceived(BluetoothLEAdvertisementWatcher sender, BluetoothLEAdvertisementReceivedEventArgs args)
+        private async void WatcherAdvertisementReceivedAsync(BluetoothLEAdvertisementWatcher sender, BluetoothLEAdvertisementReceivedEventArgs args)
         {
 
             // clean up timed out devices.
             CleanupTimeOutDevices();
 
-            DnaBluetoothLEDevice device = null;
+            // get bluetooth device info
+            var device = await GetBluetoothLEDeviceAsync(
+                args.BluetoothAddress,
+                args.Timestamp,
+                args.RawSignalStrengthInDBm);
+
+            // null check 
+            if (device == null)
+                return;
 
             // is new discovered device?
-            var newDiscovery = !mDiscoveredDevices.ContainsKey(args.BluetoothAddress);
+            var newDiscovery = false;
+
+            var existingName = default(string);
+
+            // lock the thread
+            lock (mThreadLock)
+            {
+                // check if this is a new discovery
+                newDiscovery = !mDiscoveredDevices.ContainsKey(device.DeviceId);
+
+                // if this is not new 
+                if (!newDiscovery)
+                    // store the old name
+                    existingName = mDiscoveredDevices[device.DeviceId].Name;
+            }
 
             // name changed?
             var nameChanged =
                 // it is not a new discovered device
                 !newDiscovery &&
                 // and is not a blank name
-                !string.IsNullOrEmpty(args.Advertisement.LocalName) &&
+                !string.IsNullOrEmpty(device.Name) &&
                 // and the name is different
-                mDiscoveredDevices[args.BluetoothAddress].Name != args.Advertisement.LocalName;
+                existingName != device.Name;
 
             // lock thread
             lock (mThreadLock)
             {
-                // get the name of the device
-                var name = args.Advertisement.LocalName;
-
-                // if new name is blank, and we already have a device
-                if (string.IsNullOrEmpty(name) && !newDiscovery)
-                    // don't override what could be an actual name already
-                    name = mDiscoveredDevices[args.BluetoothAddress].Name;
-
-                // create new device info class
-                device = new DnaBluetoothLEDevice
-                    (
-                        // address of the device
-                        address: args.BluetoothAddress,
-
-                        // name of the device
-                        name: name,
-
-                        // broadcast time
-                        broadcastTime: args.Timestamp,
-
-                        // signal strength 
-                        rssi: args.RawSignalStrengthInDBm
-                    );
-
+                
                 // add/update the device in the dictionary
-                mDiscoveredDevices[args.BluetoothAddress] = device;
+                mDiscoveredDevices[device.DeviceId] = device;
             }
 
             // inform listeners
@@ -195,6 +205,66 @@ namespace Blueberry.Desktop.WindowsApp.Bluetooth
             if (newDiscovery)
                 // inform listeners
                 NewDeviceDiscovered(device);
+        }
+
+        /// <summary>
+        /// connects to the BLE device and extracts more information for the 
+        /// <see cref="https://docs.microsoft.com/en-us/uwp/api/windows.devices.bluetooth.bluetoothledevice"/>
+        /// </summary>
+        /// <param name="address">the bluetooth device address to connect</param>
+        /// <param name="broadcastTime">the time broadcast message received</param>
+        /// <param name="rssi">the signal strength received</param>
+        /// <returns></returns>
+        private async Task<DnaBluetoothLEDevice> GetBluetoothLEDeviceAsync(ulong address, DateTimeOffset broadcastTime, short rssi)
+        {
+
+            // get bluetooth device info
+            var device = await BluetoothLEDevice.FromBluetoothAddressAsync(address).AsTask();
+
+            // null check 
+            if (device == null)
+                return null;
+
+            // get GATT Services that are available
+            var gatt = await device.GetGattServicesAsync().AsTask();
+
+            // if we have any services..
+            if (gatt.Status == GattCommunicationStatus.Success)
+            {
+                // loop each GATT Service
+                foreach (var service in gatt.Services)
+                {
+                    // this id contains GATT Profile Assigned number                     
+                    var gattProfileID = service.Uuid;
+
+                    if(service.Uuid.ToString("N").Substring(4,4) == "1808")
+                    {
+                        System.Diagnostics.Debugger.Break();
+                    }
+                }
+            }
+
+            // return the new device information
+            return new DnaBluetoothLEDevice
+            (
+                // Device Id
+                deviceId: device.DeviceId,
+                // Bluetooth address
+                address: device.BluetoothAddress,
+                // device name
+                name: device.Name,
+                // broadcast time
+                broadcastTime: broadcastTime,
+                // signal name
+                rssi: rssi,
+                // is connected?
+                connected: device.ConnectionStatus == BluetoothConnectionStatus.Connected,
+                // can pair?
+                canPair: device.DeviceInformation.Pairing.CanPair,
+                // is paired?
+                paired: device.DeviceInformation.Pairing.IsPaired
+            );
+
         }
 
         /// <summary>

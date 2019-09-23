@@ -30,19 +30,60 @@ namespace Blueberry.Desktop.WindowsApp.Bluetooth
         /// </summary>
         public short SignalStrengthInDB { get; }
 
+        /// <summary>
+        /// indicates if we are connected to this device
+        /// </summary>
+        public bool Connected { get; }
+
+        /// <summary>
+        /// indicates if this device supports pairing
+        /// </summary>
+        public bool CanPair { get; }
+
+        /// <summary>
+        /// indicates if we are currently paired to this device
+        /// </summary>
+        public bool Paired { get; }
+
+        /// <summary>
+        /// the permanent unique ID of this device
+        /// </summary>
+        public string DeviceId { get; }
+
+
         #endregion
 
         #region Constructor
 
         /// <summary>
-        /// Default Constructor
+        /// Default constructor
         /// </summary>
-        public DnaBluetoothLEDevice(ulong address, string name, short rssi, DateTimeOffset broadcastTime)
+        /// <param name="address">the device address</param>
+        /// <param name="name">the device name</param>
+        /// <param name="rssi">the signal strength</param>
+        /// <param name="broadcastTime">the broadcast time of the discovery</param>
+        /// <param name="connected">if connected to the device</param>
+        /// <param name="canPair">if we can pair to the device</param>
+        /// <param name="paired">if we paired to the device</param>
+        /// <param name="deviceId">the unique ID of the device</param>
+        public DnaBluetoothLEDevice(
+            ulong address, 
+            string name, 
+            short rssi, 
+            DateTimeOffset broadcastTime,
+            bool connected,
+            bool canPair,
+            bool paired,
+            string deviceId)
         {
             Address = address;
             Name = name;
             SignalStrengthInDB = rssi;
             BroadcastTime = broadcastTime;
+            Connected = connected;
+            CanPair = canPair;
+            Paired = paired;
+            DeviceId = deviceId;
         }
 
         #endregion
@@ -53,7 +94,7 @@ namespace Blueberry.Desktop.WindowsApp.Bluetooth
         /// <returns></returns>
         public override string ToString()
         {
-            return $"{(string.IsNullOrEmpty(Name) ? "[No Name]" : Name)}{Address} ({SignalStrengthInDB})";
+            return $"{(string.IsNullOrEmpty(Name) ? "[No Name]" : Name)} [{DeviceId}] ({SignalStrengthInDB})";
         }
     }
 }
