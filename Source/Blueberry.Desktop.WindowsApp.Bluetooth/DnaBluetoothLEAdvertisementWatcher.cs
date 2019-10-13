@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Bluetooth.Advertisement;
 using Windows.Devices.Bluetooth.GenericAttributeProfile;
+using Windows.Devices.Enumeration;
 
 namespace Blueberry.Desktop.WindowsApp.Bluetooth
 {
@@ -188,7 +189,7 @@ namespace Blueberry.Desktop.WindowsApp.Bluetooth
             // lock thread
             lock (mThreadLock)
             {
-                
+
                 // add/update the device in the dictionary
                 mDiscoveredDevices[device.DeviceId] = device;
             }
@@ -225,6 +226,7 @@ namespace Blueberry.Desktop.WindowsApp.Bluetooth
             if (device == null)
                 return null;
 
+            // NOTE: this can throw a System.Exception for failure
             // get GATT Services that are available
             var gatt = await device.GetGattServicesAsync().AsTask();
 
@@ -237,10 +239,10 @@ namespace Blueberry.Desktop.WindowsApp.Bluetooth
                     // this id contains GATT Profile Assigned number                     
                     var gattProfileID = service.Uuid;
 
-                    if(service.Uuid.ToString("N").Substring(4,4) == "1808")
-                    {
-                        System.Diagnostics.Debugger.Break();
-                    }
+                    //if(service.Uuid.ToString("N").Substring(4,4) == "1808")
+                    //{
+                    //    System.Diagnostics.Debugger.Break();
+                    //}
                 }
             }
 
@@ -333,6 +335,54 @@ namespace Blueberry.Desktop.WindowsApp.Bluetooth
                 // clear any devices
                 mDiscoveredDevices.Clear();
             }
+        }
+
+        /// <summary>
+        /// attempts to pair a BLE device by ID
+        /// </summary>
+        /// <param name="deviceId">the BLE device Id</param>
+        /// <returns></returns>
+        public async Task PairToDeviceAsync(string deviceId)
+        {
+            // get bluetooth device info
+            var device = await BluetoothLEDevice.FromIdAsync(deviceId).AsTask();
+
+            // null check 
+            if (device == null)
+                // TODO: Localize
+                throw new ArgumentNullException("Failed to get information about the Bluetooth device");
+
+            // if we already paired...
+            if (device.DeviceInformation.Pairing.IsPaired)
+                // do nothing..
+                return;
+
+            // listen out for pairing requests
+            device.DeviceInformation.Pairing.Custom.PairingRequested += (sender, args) =>
+            {
+                // log it
+                // TODO: Remove
+                Console.WriteLine("Accepting pairing request...");
+
+                // accept all attempts
+                args.Accept();
+            };
+
+            // try and pair to the device
+            var result = await device.DeviceInformation.Pairing.Custom.PairAsync(
+           
+                // for contour we should try provide pin
+                // TODO: try different types to see if any works
+                DevicePairingKinds.ProvidePin
+            ).AsTask();
+            
+            // log the result
+            if (result.Status == DevicePairingResultStatus.Paired)
+                // TODO: Remove
+                Console.WriteLine("Pairing successful");
+            else
+                // TODO: remove
+                Console.WriteLine($"Pairing failed: {result.Status}");
         }
 
         #endregion

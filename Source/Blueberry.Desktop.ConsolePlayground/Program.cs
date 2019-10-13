@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Linq;
+using System.Threading.Tasks;
 using Blueberry.Desktop.WindowsApp.Bluetooth;
 
 namespace Blueberry.Desktop.ConsolePlayground
@@ -9,60 +11,122 @@ namespace Blueberry.Desktop.ConsolePlayground
         {
             Console.WriteLine("Hello World!");
 
-            // new watcher
-            var watcher = new DnaBluetoothLEAdvertisementWatcher(new GattServiceIds());
+            var tcs = new TaskCompletionSource<bool>();
 
-            // hook into start event
-            watcher.StartedListening += () =>
+            Task.Run(async () =>
             {
-                Console.ForegroundColor = ConsoleColor.DarkYellow;
-                Console.WriteLine("Started Listening");
-            };
 
-            // hook into stop event
-            watcher.StoppedListening += () =>
-            {
-                Console.ForegroundColor = ConsoleColor.Gray;
-                Console.WriteLine("Stopped Listening");
-            };
+                try
+                {
+                    // new watcher
+                    var watcher = new DnaBluetoothLEAdvertisementWatcher(new GattServiceIds());
 
-            watcher.NewDeviceDiscovered += (device) =>
-            {
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"New device: {device}");
-            };
+                    // hook into start event
+                    watcher.StartedListening += () =>
+                    {
+                        Console.ForegroundColor = ConsoleColor.DarkYellow;
+                        Console.WriteLine("Started Listening");
+                    };
 
-            watcher.DeviceNameChanged += (device) =>
-            {
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($"Device name changed: {device}");
-            };
+                    // hook into stop event
+                    watcher.StoppedListening += () =>
+                    {
+                        Console.ForegroundColor = ConsoleColor.Gray;
+                        Console.WriteLine("Stopped Listening");
+                    };
 
-            watcher.DeviceTimeout += (device) =>
-            {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"Device timed out: {device}");
-            };
+                    watcher.NewDeviceDiscovered += (device) =>
+                    {
+                        Console.ForegroundColor = ConsoleColor.Green;
+                        Console.WriteLine($"New device: {device}");
+                    };
 
-            // start listening
-            watcher.StartListening();
+                    watcher.DeviceNameChanged += (device) =>
+                    {
+                        Console.ForegroundColor = ConsoleColor.Yellow;
+                        Console.WriteLine($"Device name changed: {device}");
+                    };
 
-            while (true)
-            {
-                // pause until we press enter
-                Console.ReadLine();
+                    watcher.DeviceTimeout += (device) =>
+                    {
+                        Console.ForegroundColor = ConsoleColor.Red;
+                        Console.WriteLine($"Device timed out: {device}");
+                    };
 
-                // get discovered devices
-                var devices = watcher.DiscoveredDevices;
+                    // start listening
+                    watcher.StartListening();
 
-                Console.ForegroundColor = ConsoleColor.White;
-                Console.WriteLine($"{devices.Count} devices....");
+                    while (true)
+                    {
+                        // pause until we press enter
+                        var command = Console.ReadLine();
 
-                // show devices in console
-                foreach (var device in devices)
-                    Console.WriteLine(device);
+                        if (string.IsNullOrEmpty(command))
+                        {
 
-            }
+                            // get discovered devices
+                            var devices = watcher.DiscoveredDevices;
+
+                            Console.ForegroundColor = ConsoleColor.White;
+                            Console.WriteLine($"{devices.Count} devices....");
+
+                            // show devices in console
+                            foreach (var device in devices)
+                                Console.WriteLine(device);
+
+                        }
+
+                        // C to connect
+                        else if (command == "c")
+                        {
+                            // attempt to find contour device
+                            var contourDevice = watcher.DiscoveredDevices.FirstOrDefault(
+                                f => f.Name.ToLower().StartsWith("lg"));
+
+                            // if we don't find it...
+                            if (contourDevice == null)
+                            {
+                                // let the user know
+                                Console.WriteLine("No contour device found for connecting");
+                                continue;
+                            }
+
+                            // try and connect
+                            Console.WriteLine("connecting to Contour Device...");
+
+                            try
+                            {
+                                // try and connect
+                                await watcher.PairToDeviceAsync(contourDevice.DeviceId);
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine("Failed to pair to contour device.");
+                                Console.WriteLine(ex);
+
+                            }
+                        }
+
+                        // Q to quit
+                        else if(command == "q")
+                        {
+                            break;
+                        }
+                    }
+
+                    // finish console application
+                    tcs.TrySetResult(true);
+                }
+                finally
+                {
+                    // if anything goes wrong, exit out
+                    tcs.TrySetResult(false);
+
+                }
+            });
+
+            tcs.Task.Wait();
+
         }
     }
 }
